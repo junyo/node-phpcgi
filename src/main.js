@@ -11,10 +11,6 @@ var url = require('url');
 var path = require('path');
 var fs = require('fs');
 
-function bufferToString(buffer) {
-    return Buffer.concat(buffer).toString();
-}
-
 /**
  * a simple parser for http response string
  *
@@ -23,29 +19,20 @@ function bufferToString(buffer) {
  * @return {Object} result {headers: {Status: 200, 'content-type': 'text/html'}, body: 'xxxx'}
  */
 function parse(buffer) {
-    var source = bufferToString(buffer);
-    // http spec: use `\r\n` as line break, except body
-    var result = {};
-    var lines = source.split('\r\n');
-    var line;
 
-    // headers
-    var headers = {};
-    while (lines.length) {
-        line = lines.shift();
-        if (line) {
-            line = line.split(':');
-            headers[line[0]] = line[1];
-        }
-        else {
-            break;
-        }
-    }
-    result.headers = headers;
+    let source = Buffer.concat(buffer);
+    let result = {};
+    let headersEnd = source.indexOf(Buffer.from('\r\n\r\n'));
+    let headersSource = source.toString('utf8', 0, headersEnd);
 
-    // body
-    // if body has `\r\n`, join it back to the body string
-    result.body = lines.join('\r\n');
+    result.headers = headersSource.split('\r\n').reduce((headers, x)=>{
+        let keyValue = x.split(':');
+        headers[keyValue[0]] = keyValue[1].trim();
+        return headers;
+    }, {});
+
+
+    result.body = source.slice(headersEnd+4);
 
     return result;
 }
@@ -101,7 +88,9 @@ exports = module.exports = function (options) {
         var body = e.body || '';
 
         res.writeHead(statusCode, headers);
-        res.end(body);
+
+        res.write(body, 'binary');
+        res.end();
     };
 
     var info = url.parse(req.url);
@@ -110,11 +99,11 @@ exports = module.exports = function (options) {
     var ext = path.extname(requestPath);
 
     if (
-      extensions.indexOf(ext) < 0
-      && (
-        includePath === false
-        || requestPath.search(new RegExp('^' + includePath)) < 0
-      )
+        extensions.indexOf(ext) < 0
+        && (
+            includePath === false
+            || requestPath.search(new RegExp('^' + includePath)) < 0
+        )
     ) {
         return next();
     }
@@ -231,8 +220,8 @@ exports = module.exports = function (options) {
                 buffer.push(buf);
             }
         );
-        // multi-byte char, like zh-cn, buffer data may lead to messy code.
-        // .setEncoding('utf8');
+    // multi-byte char, like zh-cn, buffer data may lead to messy code.
+    // .setEncoding('utf8');
 
     // done
     child.on('close', function (code) {
